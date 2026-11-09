@@ -1,6 +1,6 @@
-# 求职工作台
+# MyJob
 
-[![CI](https://github.com/maning636/JobBench/actions/workflows/ci.yml/badge.svg)](https://github.com/maning636/JobBench/actions/workflows/ci.yml)
+[![CI](https://github.com/maning636/MyJob/actions/workflows/ci.yml/badge.svg)](https://github.com/maning636/MyJob/actions/workflows/ci.yml)
 
 > 每天自动帮你把该投的岗位挑出来。
 
@@ -47,7 +47,7 @@
 
 ### 方式一：下载压缩包，双击就行（推荐给不熟悉 Git 的人）
 
-到 [Releases](https://github.com/maning636/JobBench/releases) 下载最新压缩包，
+到 [Releases](https://github.com/maning636/MyJob/releases) 下载最新压缩包，
 解压之后**双击 `启动桌面版.bat`**（想要网页版就双击 `启动.bat`）。
 
 `启动桌面版.bat` 会弹出一个**独立的应用窗口** —— 没有地址栏、没有标签栏，
@@ -75,8 +75,8 @@
 ### 方式二：克隆仓库自己跑
 
 ```bash
-git clone https://github.com/maning636/JobBench.git
-cd JobBench
+git clone https://github.com/maning636/MyJob.git
+cd MyJob
 pip install -r requirements.txt
 python -m jobforge.cli web        # → http://127.0.0.1:8080
 ```
@@ -95,7 +95,7 @@ python -m jobforge.desktop         # → 独立应用窗口
 
 ```bash
 pip install -r requirements.txt
-python -m jobforge.cli test          # 750 项左右，全绿才算好
+python -m jobforge.cli test          # 779 项左右，全绿才算好
 ```
 
 `jobforge.cli test` 里带**漏跑检测** —— `tests/` 下新增了测试文件却没注册进

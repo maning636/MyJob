@@ -15,3 +15,15 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+
+
+def app_data_dir() -> Path:
+    """应用数据目录（可写）。
+
+    源码运行时在项目根的 ``data/``；PyInstaller 打包后（``sys.frozen``）在
+    exe 旁的 ``data/`` —— ``_MEIPASS`` 是只读临时目录，把简历、数据库、
+    API Key 写进去重启就丢，所以打包后必须落到 exe 旁的可写位置。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "data"
+    return _PROJECT_ROOT / "data"

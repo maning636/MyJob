@@ -48,7 +48,10 @@ from jobforge.persistence.sqlite_store import IngestReport, Store
 # 会把岗位库、简历、模型配置写到别的地方 —— 表现是「明明导入了岗位，
 # 首页却是空的」。这跟 v1.2.0 的定时任务病根是同一个坑。
 PROJECT_ROOT = _PROJECT_ROOT
-DATA_DIR = PROJECT_ROOT / "data"
+# 数据目录锚定到可写位置：源码跑在项目根 data/，PyInstaller 打包后（sys.frozen）
+# 在 exe 旁 data/ —— 见 jobforge.app_data_dir()。
+from jobforge import app_data_dir
+DATA_DIR = app_data_dir()
 DEFAULT_DB = str(DATA_DIR / "jobforge.db")
 CANDIDATE_PATH = str(DATA_DIR / "candidate.json")
 GATE = DataGate()

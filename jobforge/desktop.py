@@ -42,7 +42,7 @@ import webbrowser
 from pathlib import Path
 from typing import Optional, Tuple
 
-from jobforge import _PROJECT_ROOT
+from jobforge import _PROJECT_ROOT, app_data_dir
 from jobforge.ports import DEFAULT_PORT as _PORTS_DEFAULT_PORT
 from jobforge.ports import pick_port, port_free
 
@@ -172,7 +172,7 @@ def run_desktop(db_path: Optional[str] = None,
     from jobforge.web.app import create_app
 
     port = pick_port(port)
-    db = db_path or str(_PROJECT_ROOT / "data" / "jobforge.db")
+    db = db_path or str(app_data_dir() / "jobforge.db")
     app = create_app(db)
 
     server, _thread = serve_in_thread(app, port)
@@ -232,7 +232,7 @@ def missing_modules() -> list[str]:
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="求职工作台 桌面版")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
-    ap.add_argument("--db", default=str(_PROJECT_ROOT / "data" / "jobforge.db"))
+    ap.add_argument("--db", default=str(app_data_dir() / "jobforge.db"))
     args = ap.parse_args(argv)
 
     # 直接 `python -m jobforge.desktop` 跑的时候，依赖可能还没装。
