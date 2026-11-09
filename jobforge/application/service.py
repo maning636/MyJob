@@ -90,6 +90,7 @@ class AnalysisService:
         rep = self.matcher.analyze(job)
 
         sem = None
+        from_cache = False
         if use_llm and self.llm_enabled and self.has_profile():
             ch = self.candidate_hash()
             cached = self.store.get_semantic(job.fingerprint, ch)
@@ -97,22 +98,23 @@ class AnalysisService:
                 sem = SemanticResult(**{k: v for k, v in cached.items()
                                         if k in SemanticResult.__dataclass_fields__})
                 sem.available = True
+                from_cache = True
             else:
                 sem = self.sem.analyze(job, self.candidate)
                 if sem.available:
                     self.store.put_semantic(
                         job.fingerprint, ch, sem.to_dict(), self.llm_cfg.model)
-                return AnalyzedJob(job=job, report=rep, semantic=sem,
-                                   from_cache=False,
-                                   elapsed=time.time() - t0)
-            return AnalyzedJob(job=job, report=rep, semantic=sem,
-                               from_cache=True, elapsed=time.time() - t0)
 
-        if use_llm and not self.llm_enabled:
+        if use_llm and not self.llm_enabled and sem is None:
             sem = SemanticResult(error="未配置 LLM，已跳过语义分析")
 
+        # A1 接通点：规则报告 + 语义补充 —— merge 只做加法
+        # （append suggestions/notes，不改 match_score/verdict）。
+        if sem is not None and sem.available:
+            rep = SemanticAnalyzer.merge(rep, sem)
+
         return AnalyzedJob(job=job, report=rep, semantic=sem,
-                           elapsed=time.time() - t0)
+                           from_cache=from_cache, elapsed=time.time() - t0)
 
     # ------------------------------------------------------------------
 

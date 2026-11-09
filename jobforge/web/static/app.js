@@ -52,7 +52,7 @@ function showTab(name, pushHash = true){
   $$('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + name));
   if(pushHash && location.hash.slice(1) !== name) location.hash = name;
   if(name === 'track') loadTracking();
-  if(name === 'resume') loadResumes();
+  if(name === 'resume') { loadResumes(); loadCandidate(); }
   if(name === 'insight') loadInsight();
   if(name === 'settings') loadDataStats();
   if(name === 'parttime') initPartTime();
@@ -436,7 +436,7 @@ function cardHtml(j, idx){
   const st = j.salary_state || 'unresolved';
   const sal = j.salary_text || '';
   const rep = state.reports[j.id];
-  const applied = j.status === 'applied' || j.status === 'interview';
+  const applied = j.status === 'applied';
   const cls = [];
   if(j.is_outsourcing_risk === true) cls.push('is-outsourcing');
   if(applied) cls.push('is-applied');
@@ -535,6 +535,13 @@ function semHtml(s){
           ${m.confidence==='high'?'':'<span class="dim">（推测）</span>'}</div>
         <div class="evid">JD：${esc((m.evidence_jd||'').slice(0,70))}</div>
         <div class="evid">简历：${esc((m.evidence_resume||'').slice(0,70))}</div>`).join('')}</div>` : ''}
+    ${(s.weak_matches||[]).length ? `<h4>❓ 模型觉得你可能沾边、但置信度不足（${s.weak_matches.length}）</h4>
+      <div class="dim" style="margin-bottom:6px">这些只是推测不是结论，简历里没有明确写，
+        请自己核实后再决定要不要用。</div>
+      <div>${s.weak_matches.map(m=>`
+        <div class="sug">· ${esc(m.skill)}
+          <span class="dim">（置信度 ${esc(m.confidence||'medium')}）</span></div>
+        <div class="evid">简历依据：${esc((m.evidence_resume||'').slice(0,70))}</div>`).join('')}</div>` : ''}
     ${line('✗ 模型认为你还缺的（推测，需自行核实）', s.missing, 'bad-600')}
     ${line('⚠ 模型标出的风险点（推测，需自行核实）', s.red_flags, 'warn-700')}
     ${(s.resume_advice||[]).length ? `<h4>📝 简历可以怎么改</h4>
@@ -777,6 +784,10 @@ async function applyJob(id){
     match_verdict: rep ? rep.verdict : ''
   });
   if(!r.ok){ toast(r.error || '投递记录失败'); return; }
+  // A8：投递成功 → 该岗位卡片显示「已投递」。后端已同步落库，
+  // 这里再回写内存态，让本次渲染立即反映（不等 load() 返回）。
+  const j = state.jobs.find(x => x.id === id);
+  if(j) j.status = 'applied';
   toast(`已记入台账：${r.application.position}`);
   load(); loadToday();
 }
@@ -787,7 +798,9 @@ async function openAppByJob(jobId){
   else { await applyJob(jobId); toast('已建记录，点「投递」标签查看'); showTab('track'); }
 }
 async function setJobStatus(id, st){
-  await post(`/api/jobs/${id}/status`, {status: st});
+  const r = await post(`/api/jobs/${id}/status`, {status: st});
+  // A7：状态变更失败必须如实提示，不得假装成功（历史缺陷：400 也弹「已隐藏」）
+  if(!r.ok){ toast(r.error || '状态更新失败'); return; }
   toast({interested:'已标记感兴趣', ignored:'已隐藏'}[st] || '已更新');
   load(); loadToday();
 }
@@ -1031,6 +1044,37 @@ function copyText(btn){
 /* ═══════════════════════════════════════════════════════════
    简历
    ═══════════════════════════════════════════════════════════ */
+/* 我的能力 = 候选人档案。匹配报告的另一半输入（A4）。
+   历史缺陷：前端从不调 /api/candidate，新用户纯网页出不了匹配报告。
+   保存后 /api/analyze 才不再 400。 */
+async function loadCandidate(){
+  try{
+    const r = await J('/api/candidate');
+    const p = r.profile || {};
+    $('#cStat').textContent = r.configured
+      ? `已建档案（${p.skill_count||0} 项技能 · ${p.education||'未识别'}`
+        + `${p.is_fresh_grad?' · 应届':''}）`
+      : '还没建档案 —— 贴一份简历，匹配报告才有另一半输入';
+    if(r.configured) $('#cHint').textContent = `已识别 ${p.skill_count||0} 项技能`;
+  }catch(e){
+    $('#cStat').textContent = '档案读取失败，点保存会重新建档';
+  }
+}
+async function saveCandidate(){
+  const resume = $('#cResume').value.trim();
+  if(!resume){ toast('先贴一份简历'); return; }
+  const r = await post('/api/candidate', {
+    resume,
+    name: $('#cName').value.trim(),
+    salary_expect: $('#cSalary').value.trim(),
+    target_city: $('#cCity').value.trim(),
+  });
+  if(!r.ok){ toast(r.error || '保存失败'); return; }
+  toast('能力档案已保存，匹配报告会按它算');
+  $('#cHint').textContent = `已识别 ${r.profile.skill_count} 项技能`;
+  $('#cStat').textContent = '已建档案 —— 回「今天」看匹配报告';
+  loadCandidate();
+}
 async function loadResumes(){
   const r = await J('/api/resumes');
   const rs = r.resumes || [];
@@ -1553,14 +1597,6 @@ async function testLLM(){
     : `<span style="color:var(--bad-600)">✗ ${esc(r.error)}</span>`;
 }
 
-async function loadDataStats(){
-  const [j, t, r] = await Promise.all([
-    J('/api/summary'), J('/api/tracking/summary'), J('/api/resumes')]);
-  $('#dsJobs').textContent = `${j.total} 个岗位`;
-  $('#dsApps').textContent = `${t.summary.total} 条投递`;
-  $('#dsRes').textContent = `${(r.resumes||[]).length} 个版本`;
-}
-
 $$('[data-k]').forEach(el => {
   el.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); load(); }});
 });
@@ -1576,10 +1612,6 @@ showTab(location.hash.slice(1) || 'today', false);
 loadToday();
 load();
 loadLLM();
-
-/* 启动 */
-showTab(location.hash.slice(1) || 'today', false);
-loadToday(); load(); loadLLM();
 
 /* 启动自检：把绑定结果写进 DOM，排查「点了没反应」这类问题时
    比肉眼猜快得多。实测踩过：tab 点击无效，靠猜会以为是 CSS 问题。 */

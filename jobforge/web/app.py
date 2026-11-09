@@ -27,10 +27,11 @@ from flask import Flask, jsonify, render_template, request
 
 from jobforge.application.filters import DataGate, HardFilter
 from jobforge.adapters.sources.manual import import_from_csv, import_from_text
-from jobforge.adapters.llm.config import LLMConfig
+from jobforge.adapters.llm.config import LLMConfig, LLMConfigError
 from jobforge.adapters.llm.client import LLMClient
 from jobforge.adapters.llm.semantic import SemanticAnalyzer
 from jobforge.application.analyzer import MatchAnalyzer, CompareAnalyzer, SalaryAdvisor
+from jobforge.application.service import AnalysisService
 from jobforge.domain.application import (
     Application, ApplyStatus, Followup, Resume, FollowupChannel,
     FOLLOWUP_SYSTEM, build_followup_prompt, export_applications_csv,
@@ -285,17 +286,33 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
         rows = st.list_jobs(limit=500)
         kept = [e["job"] for e in f.apply(rows)["kept"]]
 
-        analyzer = MatchAnalyzer(cand)
-        reports = {getattr(j, "db_id", None): analyzer.analyze(j) for j in kept}
+        if not kept:
+            return jsonify({
+                "ok": True,
+                "candidate": {
+                    "skill_count": len(cand.skill_names),
+                    "education": cand.education,
+                    "is_fresh_grad": cand.is_fresh_grad,
+                },
+                "reports": {},
+                "compare": [],
+                "explain": [],
+                "salary": {},
+            })
 
-        # 横向对比：按匹配度排序，给出胜负手
-        order = sorted(
-            kept, key=lambda j: -reports[getattr(j, "db_id", 0)].match_score
-        )
-        rows_cmp = CompareAnalyzer(cand).compare(order, [reports[getattr(j, "db_id", 0)] for j in order])
-        explain = CompareAnalyzer(cand).explain(rows_cmp)
-
-        adv = SalaryAdvisor(cand)
+        # A3：与 CLI 共用同一编排（AnalysisService）→ 拿到语义缓存 + LLM 补充。
+        # 原实现直接 new MatchAnalyzer 同步重跑，无 LLM、无缓存，
+        # 每次对最多 500 个岗位重算规则匹配；配了模型也白配。
+        try:
+            _llm = LLMConfig.load()
+        except LLMConfigError:
+            _llm = LLMConfig()
+        svc = AnalysisService(st, cand, llm=_llm)
+        analyzed = svc.analyze_many(kept, use_llm=True)
+        reports = {str(getattr(a.job, "db_id", 0)): a.report.to_dict()
+                   for a in analyzed}
+        cmpd = svc.compare(analyzed)
+        salary = svc.salary_views(analyzed)
         return jsonify({
             "ok": True,
             "candidate": {
@@ -303,10 +320,10 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
                 "education": cand.education,
                 "is_fresh_grad": cand.is_fresh_grad,
             },
-            "reports": {str(k): v.to_dict() for k, v in reports.items()},
-            "compare": [r.to_dict() for r in rows_cmp],
-            "explain": explain,
-            "salary": {str(getattr(j, "db_id", 0)): adv.view(j, kept).to_dict() for j in kept},
+            "reports": reports,
+            "compare": cmpd["rows"],
+            "explain": cmpd["explain"],
+            "salary": salary,
         })
 
     @app.get("/api/trust/<int:job_id>")
@@ -787,6 +804,12 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
                                         match_score=score, match_verdict=verdict)
         app_obj.note = body.get("note", "")
         aid = ts.add_application(app_obj)
+        # A8：投递即视为「已投递」—— 岗位收藏状态同步落库，
+        # 这样岗位卡片才能在刷新后仍显示「已投递」（而不是闪一下又变回）。
+        # 注：这是岗位(JobStatus)状态，与台账(ApplyStatus)是两套语义，
+        # 但不冲突——投递了这个岗位，它就该被标成已投递。
+        if job_id:
+            st.set_status(job_id, "applied")
         return jsonify({"ok": True, "id": aid, "application": app_obj.to_dict()})
 
     @app.post("/api/tracking/applications/<int:aid>/status")

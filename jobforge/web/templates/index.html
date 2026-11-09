@@ -6,6 +6,10 @@
 <meta name="color-scheme" content="light">
 <meta name="description" content="求职工作台 —— 每天自动帮你把该投的岗位挑出来">
 <title>求职工作台</title>
+<!-- Achromatic ledger 字体：Geist 正文 + Geist Mono 数字/ID -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <!-- favicon 决定桌面客户端窗口的标题栏/任务栏图标 -->
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
 <link rel="icon" type="image/png" sizes="64x64" href="/static/favicon-64.png">
@@ -142,6 +146,29 @@
 <main class="wrap pane" id="pane-resume">
   <section class="hero sm"><h1>我的简历</h1>
     <p>不同方向用不同版本，投的时候自动记下用的是哪版</p></section>
+
+  <!-- 我的能力 = 候选人档案（匹配报告的另一半输入）。
+       历史缺陷 A4：前端从不调 /api/candidate，新用户纯网页永远出不了匹配报告。
+       这里就是那个入口：贴简历 → 保存 → /api/analyze 才不再 400。 -->
+  <section class="filters">
+    <div class="filters-hd"><h3>我的能力</h3>
+      <span class="n" id="cStat">还没建档案 —— 贴一份简历，匹配报告才有另一半输入</span></div>
+    <div class="fgrid">
+      <div class="field"><label for="cName">姓名</label>
+        <input id="cName" placeholder="选填"></div>
+      <div class="field"><label for="cSalary">期望薪资</label>
+        <input id="cSalary" placeholder="如：18K"></div>
+      <div class="field"><label for="cCity">目标城市</label>
+        <input id="cCity" placeholder="选填"></div>
+    </div>
+    <textarea id="cResume" class="ta" style="margin-top:var(--s3)"
+      placeholder="粘贴简历全文（技能段 + 项目段最有用）—— 匹配报告会按这份能力来算"></textarea>
+    <div class="row-end">
+      <button class="btn" onclick="saveCandidate()">保存我的能力</button>
+      <span class="dim" id="cHint"></span>
+    </div>
+  </section>
+
   <section class="filters">
     <div class="filters-hd"><h3>新增简历版本</h3>
       <span class="n">默认版本会在投递时自动关联</span></div>

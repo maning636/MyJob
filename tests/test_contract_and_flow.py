@@ -433,7 +433,7 @@ check("首页引用外部样式与脚本",
 r = c.get("/static/app.css")
 check("app.css 返回 200", r.status_code == 200, str(r.status_code))
 css = r.get_data(as_text=True)
-check("设计 token 在 app.css 里", ":root{" in css and "--brand-500" in css)
+check("设计 token 在 app.css 里（achromatic-ledger 基线）", ":root{" in css and "--chart-3" in css and "--accent" in css and "--ground" in css)
 check("响应式断点存在", "@media" in css and "prefers-reduced-motion" in css)
 
 r = c.get("/static/app.js")
@@ -588,6 +588,219 @@ try:
     check("带 BOM 的合法档案能读出", Candidate.load(str(ok_cand)).name == "张明")
 except Exception as e:  # noqa: BLE001
     check("带 BOM 的合法档案能读出", False, f"{type(e).__name__}: {e}")
+
+
+# =============================================================================
+print("\n[12b] A1 接通点 —— 模型补充必须进规则报告（不只挂在 semantic 字段上）")
+# =============================================================================
+# A1 的历史缺陷：semantic.merge(rep) 在 jobforge/ 内零调用，LLM 产出的
+# missing / weak_matches / red_flags / resume_advice 从不进入 MatchReport 的
+# suggestions / notes —— Web UI 渲染的正是这两个字段，等于模型白跑了。
+# 这里用带内容的假语义结果钉死：analyze_one 返回的 report 必须已经合并。
+_calls2 = {"n": 0}
+
+
+class _RichSem:
+    def analyze(self, job, cand):
+        _calls2["n"] += 1
+        r = SemanticResult(available=True, soft_fit_score=60,
+                           soft_fit_comment="工作内容大体契合")
+        r.missing = [{"skill": "高并发", "why": "岗位明确要求高并发经验",
+                      "learnable": True, "learn_cost": "1月"}]
+        r.weak_matches = [{"skill": "微服务", "confidence": "medium",
+                           "evidence_resume": "做过订单系统"}]
+        r.resume_advice = ["把 Redis 缓存写进技能栏"]
+        r.red_flags = ["职责描述模糊"]
+        return r
+
+
+svc.sem = _RichSem()
+_orig_avail2 = LLMClient.available
+LLMClient.available = lambda self: True      # 假装模型可用
+# [12] 段已把 jobs2[0] 的 (fingerprint, 简历哈希) 写进缓存；这里改简历文本
+# 换一个全新哈希，强制缓存 miss → 必走 _RichSem（否则测的是旧空结果）。
+cand2.resume_text += " 加了 RocketMQ（A1 接通点测试用）"
+_job2 = jobs2[0]
+try:
+    # 纯规则基线分（不接 LLM），用来验证 merge 不改 match_score
+    _pure = svc.analyze_one(_job2, use_llm=False)
+    a = svc.analyze_one(_job2, use_llm=True)      # 首次：真调假模型
+    a2 = svc.analyze_one(_job2, use_llm=True)     # 第二次：命中缓存
+    rep = a.report
+    check("A1: 假模型确实被调用（缓存未污染）",
+          _calls2["n"] == 1, f"调用 {_calls2['n']} 次")
+    check("A1: 模型缺失项进规则报告的建议",
+          any("高并发" in s for s in rep.suggestions), str(rep.suggestions))
+    check("A1: 模型弱匹配进说明且标注推测",
+          any("微服务" in n and "推测" in n for n in rep.notes), str(rep.notes))
+    check("A1: 模型红旗进说明",
+          any("职责描述模糊" in n for n in rep.notes), str(rep.notes))
+    check("A1: 模型简历建议进建议且带防造假约束",
+          any("Redis" in s and "来自模型" in s for s in rep.suggestions),
+          str(rep.suggestions))
+    check("A1: merge 不改 match_score（规则优先）",
+          rep.match_score == _pure.report.match_score,
+          f"{rep.match_score} vs {_pure.report.match_score}")
+    check("A1: 命中缓存的报告同样已合并（不只首次）",
+          a2.from_cache and any("高并发" in s for s in a2.report.suggestions),
+          f"cache={a2.from_cache}, sug={a2.report.suggestions}")
+finally:
+    LLMClient.available = _orig_avail2
+
+
+# =============================================================================
+print("\n[15] A3 —— /api/analyze 走统一编排并带语义缓存")
+# =============================================================================
+# A3 的历史缺陷：/api/analyze 直接 new MatchAnalyzer 同步重跑，
+# 无 LLM、无语义缓存，每次对最多 500 个岗位重算规则匹配；
+# 配了模型也白配，且 Web 与 CLI 各写一套分析流程。
+# 这里用假 LLM 钉死：/api/analyze 必须走 AnalysisService（才可能
+# 写入并命中语义缓存），且语义补充要能进 report（与 A1 联动）。
+_sem_calls = {"n": 0}
+from jobforge.adapters.llm.semantic import SemanticAnalyzer
+
+
+
+def _fake_analyze(self, job, cand):
+    _sem_calls["n"] += 1
+    r = SemanticResult(available=True, soft_fit_score=70,
+                       soft_fit_comment="工作内容大体契合")
+    r.missing = [{"skill": "K8s", "why": "岗位明确要求容器编排",
+                  "learnable": True, "learn_cost": "1月"}]
+    return r
+
+
+# 写一份候选人档案到 tmp 库对应的 candidate.json，否则 /api/analyze 恒 400
+# 注意：tmp 是库文件路径（t.db），候选文件在它父目录（EXPORT_DIR）。
+cand2.save(str(Path(tmp).parent / "candidate.json"))
+_orig_analyze = SemanticAnalyzer.analyze
+_orig_avail3 = LLMClient.available
+SemanticAnalyzer.analyze = _fake_analyze
+LLMClient.available = lambda self: True      # 假装模型可用
+try:
+    r1 = c.get("/api/analyze")
+    j1 = r1.get_json()
+    check("A3: /api/analyze 返回 200 且 ok",
+          r1.status_code == 200 and j1.get("ok") is True, str(r1.status_code))
+    check("A3: 响应结构完整（reports/compare/explain/salary）",
+          isinstance(j1.get("reports"), dict)
+          and isinstance(j1.get("compare"), list)
+          and isinstance(j1.get("explain"), list)
+          and isinstance(j1.get("salary"), dict))
+    check("A3: 有岗位时 reports 非空", len(j1.get("reports") or {}) > 0,
+          str(list((j1.get("reports") or {}).keys())[:3]))
+    _first_sug = list((j1.get("reports") or {}).values())[0].get("suggestions") or []
+    check("A3: 语义补充进了 report（与 A1 联动）",
+          any("K8s" in s for s in _first_sug), str(_first_sug))
+    check("A3: 模型确实被调用（说明走了 LLM 路径）", _sem_calls["n"] > 0,
+          str(_sem_calls["n"]))
+    _n_after_first = _sem_calls["n"]
+    r2 = c.get("/api/analyze")
+    j2 = r2.get_json()
+    check("A3: 第二次请求命中缓存不再调 LLM",
+          _sem_calls["n"] == _n_after_first,
+          f"{_sem_calls['n']} vs {_n_after_first}")
+    _second_sug = list((j2.get("reports") or {}).values())[0].get("suggestions") or []
+    check("A3: 缓存后报告仍含语义补充",
+          any("K8s" in s for s in _second_sug), str(_second_sug))
+finally:
+    SemanticAnalyzer.analyze = _orig_analyze
+    LLMClient.available = _orig_avail3
+
+
+# =============================================================================
+print("\n[16] A4 —— 网页端能贴简历出匹配报告")
+# =============================================================================
+# A4 的历史缺陷：POST /api/candidate 是 candidate.json 的唯一写入口，
+# 但前端零调用 → 新用户纯网页永远出不了匹配报告；发布包又排除 data/。
+# 这里钉死两件事：① 前端真的有保存档案入口；② 建档后 /api/analyze 不再 400。
+_js_resp = c.get("/static/app.js")
+_js_txt = _js_resp.get_data(as_text=True)
+check("A4: 前端有保存档案入口（saveCandidate + /api/candidate）",
+      "saveCandidate" in _js_txt and "/api/candidate" in _js_txt,
+      "")
+_html_resp = c.get("/")
+_html_txt = _html_resp.get_data(as_text=True)
+check("A4: 简历页有我的能力区块（cResume）",
+      'id="cResume"' in _html_txt and "saveCandidate" in _html_txt, "")
+
+# 后端链路：POST /api/candidate → GET 读回 → /api/analyze 不再 400
+_r = c.post("/api/candidate", json={"resume": RESUME, "name": "A4测试"})
+_j = _r.get_json()
+check("A4: POST /api/candidate 能建档",
+      _r.status_code == 200 and _j.get("ok") is True, str(_r.status_code))
+check("A4: 建档返回技能数", (_j.get("profile") or {}).get("skill_count", 0) > 0,
+      str((_j.get("profile") or {}).get("skill_count")))
+_gr = c.get("/api/candidate")
+check("A4: GET /api/candidate 读回已配置",
+      _gr.get_json().get("configured") is True)
+_ar = c.get("/api/analyze")
+check("A4: 建档后 /api/analyze 不再 400",
+      _ar.status_code == 200 and _ar.get_json().get("ok") is True,
+      str(_ar.status_code))
+
+
+# =============================================================================
+print("\n[17] A5/A6 —— 前端重复定义与重复首屏请求")
+# =============================================================================
+# A5: loadDataStats 重复定义，后定义（精简版）覆盖了含 loadCollectHist /
+#     loadAutoStatus 的那份 → 设置页采集历史与自动采集状态永不加载。
+# A6: 启动块重复 → 首屏 5 个接口各打两遍。
+# 这里静态钉死：函数只定义一次，且函数体真的会加载采集历史与自动状态；
+# 启动入口（loadToday+load+loadLLM）只出现一次。
+import re as _re
+_js17 = c.get("/static/app.js").get_data(as_text=True)
+check("A5: loadDataStats 只定义一次",
+      _js17.count("async function loadDataStats") == 1,
+      str(_js17.count("async function loadDataStats")))
+_m17 = _re.search(r"async function loadDataStats\(\)\{(.*?)\n\}", _js17, _re.S)
+_body17 = _m17.group(1) if _m17 else ""
+check("A5: loadDataStats 会加载采集历史与自动状态",
+      "loadCollectHist" in _body17 and "loadAutoStatus" in _body17,
+      _body17[:80])
+_s17 = _re.findall(r"showTab\(location\.hash\.slice\(1\) \|\| 'today', false\);\s*loadToday\(\);\s*load\(\);\s*loadLLM\(\);\s*\n", _js17)
+check("A6: 首屏启动块只执行一次", len(_s17) == 1, str(len(_s17)))
+
+
+# =============================================================================
+print("\n[18] A7/A8 —— 投递后状态同步，失败不再假装成功")
+# =============================================================================
+# A7: setJobStatus 不检查 r.ok，后端 400 也弹「已隐藏」→ 必须检查。
+# A8: applyJob 只写台账不回写 jobs.status；j.status==='interview' 分支不可达。
+_js18 = c.get("/static/app.js").get_data(as_text=True)
+# A8 前端：applyJob 成功后回写岗位状态（内存态）
+_m18 = _re.search(r"async function applyJob\(id\)\{(.*?)\n\}", _js18, _re.S)
+_b18 = _m18.group(1) if _m18 else ""
+check("A8: applyJob 成功后回写岗位状态", "j.status = 'applied'" in _b18, _b18[:70])
+check("A8: 卡片已投递判断不再含不可达 interview",
+      "const applied = j.status === 'applied';" in _js18
+      and "const applied = j.status === 'applied' || j.status === 'interview'" not in _js18)
+# A8 后端：投递后岗位收藏状态落库为 applied
+_jobs18 = c.get("/api/jobs").get_json()["kept"]
+_job18 = next((x for x in _jobs18 if x["status"] != "applied"),
+              _jobs18[0] if _jobs18 else None)
+if _job18:
+    _r18 = c.post("/api/tracking/applications",
+                  json={"job_id": _job18["id"], "match_score": 60,
+                        "match_verdict": "值得投"})
+    check("A8: 投递创建成功",
+          _r18.status_code == 200 and _r18.get_json().get("ok") is True,
+          str(_r18.status_code))
+    _after18 = next((x for x in c.get("/api/jobs").get_json()["kept"]
+                     if x["id"] == _job18["id"]), None)
+    check("A8: 投递后岗位状态落库为 applied",
+          _after18 and _after18["status"] == "applied",
+          str(_after18 and _after18["status"]))
+# A7 前端：setJobStatus 检查响应 ok
+_m7 = _re.search(r"async function setJobStatus\(id, st\)\{(.*?)\n\}", _js18, _re.S)
+_b7 = _m7.group(1) if _m7 else ""
+check("A7: setJobStatus 检查响应 ok（失败不假装成功）",
+      "if(!r.ok)" in _b7 and "状态更新失败" in _b7, _b7[:60])
+# A7 后端：非法状态返回 400 且 ok=False
+_r7 = c.post("/api/jobs/1/status", json={"status": "不存在"})
+check("A7: 非法状态返回 400 且 ok=False",
+      _r7.status_code == 400 and _r7.get_json().get("ok") is False,
+      str(_r7.status_code))
 
 
 # =============================================================================
