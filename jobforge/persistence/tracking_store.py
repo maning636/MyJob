@@ -333,6 +333,21 @@ class TrackingStore:
         decided = [a for a in closed if a.status in
                    (ApplyStatus.OFFER.value, ApplyStatus.REJECTED.value)]
         reply_rate = round(len(replied) / len(decided) * 100) if decided else None
+        # 匹配度分桶（B4）：前端不再重算，后端唯一。
+        # 与回复率的桶内「有回应」= offer/interview/assessment。
+        buckets: Dict[str, Dict[str, int]] = {
+            "0-30": {"n": 0, "ok": 0}, "31-60": {"n": 0, "ok": 0},
+            "61-80": {"n": 0, "ok": 0}, "81-100": {"n": 0, "ok": 0},
+        }
+        for a in apps:
+            m = a.match_score
+            if m is None:
+                continue
+            k = "0-30" if m <= 30 else "31-60" if m <= 60 else "61-80" if m <= 80 else "81-100"
+            buckets[k]["n"] += 1
+            if a.status in (ApplyStatus.OFFER.value, ApplyStatus.INTERVIEW.value,
+                            ApplyStatus.ASSESSMENT.value):
+                buckets[k]["ok"] += 1
         return {
             "total": len(apps),
             "open": open_n,
@@ -341,4 +356,5 @@ class TrackingStore:
             "offer": len(replied),
             "reply_rate": reply_rate,
             "followups": sum(a.followup_count for a in apps),
+            "buckets": buckets,
         }

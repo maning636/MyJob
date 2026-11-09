@@ -34,11 +34,13 @@ from jobforge.application.analyzer import MatchAnalyzer, CompareAnalyzer, Salary
 from jobforge.application.service import AnalysisService
 from jobforge.domain.application import (
     Application, ApplyStatus, Followup, Resume, FollowupChannel,
-    FOLLOWUP_SYSTEM, build_followup_prompt, export_applications_csv,
+    FOLLOWUP_SYSTEM, RULE_FOLLOWUP_DAYS, RULE_FOLLOWUP_URGENT,
+    build_followup_prompt, export_applications_csv,
 )
 from jobforge.persistence.tracking_store import TrackingStore
 from jobforge.domain.candidate import Candidate
 from jobforge.domain.models import Job, JobStatus, SCHEMA_VERSION
+from jobforge.domain.trust import STALE_LISTED_DAYS
 from jobforge.persistence.sqlite_store import IngestReport, Store
 
 # 数据目录锚定到「项目根」，不跟着当前工作目录跑。
@@ -66,13 +68,11 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
     app.config["CANDIDATE_PATH"] = str(
         Path(app.config["EXPORT_DIR"]) / "candidate.json")
     app.config["LLM_PATH"] = str(Path(app.config["EXPORT_DIR"]) / "llm.json")
-    ts = TrackingStore(app.config["DB_PATH"] if "DB_PATH" in app.config
-                       else str(Path(db_path)))
+    ts = TrackingStore(str(Path(db_path)))
     app.config["TRACKING"] = ts
 
     from jobforge.application.collect_job import RunStore
-    runs = RunStore(app.config["DB_PATH"] if "DB_PATH" in app.config
-                    else str(Path(db_path)))
+    runs = RunStore(str(Path(db_path)))
 
     def _all_cursors():
         import sqlite3
@@ -172,6 +172,7 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
             "kept_count": result["kept_count"],
             "dropped_count": result["dropped_count"],
             "kept": kept,
+            "rules": {"listed_age_days": STALE_LISTED_DAYS},
             "dropped_sample": [
                 {"position": e["job"].position, "company": e["job"].company,
                  "reasons": e["reasons"]}
@@ -326,21 +327,6 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
             "salary": salary,
         })
 
-    @app.get("/api/trust/<int:job_id>")
-    def trust_one(job_id: int):
-        """岗位可信度体检。
-
-        **刻意不参与匹配度计算** —— 详见 domain/trust.py 文件头。
-        一个 90% 匹配的岗位如果同时挂着"这可能是条幽灵岗"，
-        两条信息必须同时摆在用户眼前。
-        """
-        from jobforge.domain.trust import check_trust
-        job = st.get(job_id)
-        if not job:
-            return jsonify({"ok": False, "error": "岗位不存在"}), 404
-        cand = Candidate.load(app.config["CANDIDATE_PATH"])
-        return jsonify({"ok": True, **check_trust(job, cand.salary_expect).to_dict()})
-
     @app.post("/api/trust/batch")
     def trust_batch():
         """给一批岗位体检 —— 首页一次性算完，前端不再逐个请求。"""
@@ -355,7 +341,7 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
         for jid in ids:
             j = st.get(jid)
             if j:
-                out[str(jid)] = check_trust(j, cand.salary_expect).to_dict()
+                out[str(jid)] = check_trust(j).to_dict()
         return jsonify({"ok": True, "reports": out})
 
     # ------------------------------------------------------------------
@@ -444,14 +430,6 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
             "notes": item.get("notes", []),
             **r,
         }
-
-    @app.get("/api/parttime/job/<int:job_id>")
-    def parttime_job(job_id: int):
-        job = st.get(job_id)
-        if not job:
-            return jsonify({"ok": False, "error": "岗位不存在"}), 404
-        from jobforge.domain.parttime import analyze_parttime
-        return jsonify({"ok": True, **analyze_parttime(job).to_dict()})
 
     @app.post("/api/parttime/report")
     def parttime_report():
@@ -769,6 +747,9 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
             "ok": True,
             "applications": [a.to_dict() for a in apps],
             "summary": ts.tracking_summary(),
+            # 跟进阈值单一来源（B2）：前端不再硬编码 3/7 天，改用后端规则。
+            "rules": {"followup_days": RULE_FOLLOWUP_DAYS,
+                      "followup_urgent": RULE_FOLLOWUP_URGENT},
         })
 
     @app.post("/api/tracking/applications")
@@ -937,13 +918,6 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
         from flask import send_file
         return send_file(str(out), as_attachment=True, mimetype="text/csv")
 
-    @app.get("/api/jobs/<int:job_id>")
-    def job_api(job_id: int):
-        j = st.get(job_id)
-        if not j:
-            return jsonify({"ok": False, "error": "不存在"}), 404
-        return jsonify({"ok": True, "job": j.to_dict()})
-
     @app.get("/api/export.csv")
     def export_api():
         from flask import send_file
@@ -1009,7 +983,10 @@ if __name__ == "__main__":
     from jobforge.server import make_server_on
 
     _app = create_app(a.db)
-    _server, _port = make_server_on("127.0.0.1", a.port, _app)
+    # tries=1：严格用传入的端口。launch 会先用 pick_port 预选一个空闲端口，
+    # 这里若再自动顺延，launch 轮询/打印的地址就与实际不符（C 档端口不一致）。
+    # 直接运行 `--port X` 时 X 被占用会报错，属合理（用户显式指定）。
+    _server, _port = make_server_on("127.0.0.1", a.port, _app, tries=1)
     print("求职工作台已启动：http://127.0.0.1:%d" % _port, flush=True)
     try:
         _server.serve_forever()

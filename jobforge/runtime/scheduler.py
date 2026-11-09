@@ -9,8 +9,8 @@
 导致浏览器 60 秒超时、按钮永远转圈、用户什么都拿不到。
 v2 把这条纪律固化成 R3：>5 秒的操作一律 job 化，不进 HTTP 线程。
 
-调度器负责：
-  - 按 cron 触发每日任务
+run_daily 是一次性每日任务流程（v2 未内置定时器；「每天自动跑」
+由外部调度——启动器或系统计划任务——负责调用）。职责：
   - 任务状态机持久化（pending/running/done/failed），可断点续采
   - 每一步的产出与失败都写日志，不静默
 """
@@ -163,7 +163,6 @@ def run_daily(
     result: Dict[str, Any] = {"run": run.to_dict()}
 
     try:
-        jobs: List[Any] = []
         ingest_report = None
 
         if fetch is not None:
@@ -183,8 +182,9 @@ def run_daily(
         all_jobs = store.list_jobs(limit=100000)
         kept = [e["job"] for e in f.apply(all_jobs)["kept"]]
 
-        # 看门狗：拿当天入库的岗位做体检，没有则用全库
-        subject = [j for j in (jobs or all_jobs)] if ingest_report else all_jobs
+        # 看门狗：拿全库体检（fetch 未接入时没有「当天入库」子集，
+        # subject 恒为全库——原先的 jobs 列表从未填充，是死代码）。
+        subject = all_jobs
         health = gate.check(ingest_report, subject) if ingest_report else {
             "pass": len(all_jobs) > 0,
             "problems": [] if all_jobs else ["库中没有任何岗位数据"],

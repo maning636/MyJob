@@ -93,13 +93,13 @@ input,select,textarea{font:inherit; color:inherit}
 .wrap{max-width:1140px; margin:0 auto; padding:0 var(--s5)}
 
 /* eyebrow：保留类名，但按 app 规则收敛为 12px 灰 sentence-case */
-.eyebrow{font-size:12px; color:var(--muted); font-weight:500}
+
 
 .dim{font-size:12.5px; color:var(--muted); font-weight:400}
 .scroll-x{overflow-x:auto}
 
 /* 通用「面板」：白底 1px 灰边，无阴影 */
-.blk{border:1px solid var(--border); border-radius:var(--radius-card)}
+
 
 /* ── 顶栏 + Tab ───────────────────────────────────────────────── */
 .top{position:sticky; top:0; z-index:20; background:var(--surface);
@@ -261,26 +261,22 @@ input,select,textarea{font:inherit; color:inherit}
 .sec-hd .link{margin-left:auto}
 
 /* ── 提醒 ─────────────────────────────────────────────────── */
-.remind{margin-bottom:var(--s4); padding:var(--s4); border-radius:var(--radius-card);
-  background:var(--pill-warning-bg)}
-.remind.hot{background:var(--pill-negative-bg)}
-.remind-hd{display:flex; align-items:center; margin-bottom:var(--s3)}
-.remind-hd h3{font-size:14.5px; display:flex; align-items:center; gap:7px; font-weight:600}
-.remind-hd .link{margin-left:auto}
-.remind ul{list-style:none; margin:0; padding:0; display:grid; gap:8px}
-.remind li{display:flex; align-items:flex-start; gap:10px; padding:9px var(--s3);
-  background:var(--surface); font-size:13.5px; cursor:pointer;
-  border:1px solid var(--border); border-radius:var(--radius-control)}
-.remind li:hover{border-color:var(--control)}
-.remind li .lv{font-size:10.5px; font-weight:600; padding:2px 7px;
-  border-radius:var(--radius-control); flex:none; margin-top:1px}
-.remind li .bd{flex:1; min-width:0}
-.remind li .bd b{font-weight:600}
-.remind li .bd small{display:block; color:var(--muted); font-size:12px; margin-top:2px}
-.remind li .go{font-size:11.5px; color:var(--text); font-weight:500; flex:none}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* ── 统计卡（可点下钻）───────────────────────────────────── */
-.stats{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--s3); margin-bottom:var(--s3)}
+
 .stat{background:var(--surface); border:1px solid var(--border);
   border-radius:var(--radius-card); padding:var(--s4); text-align:left;
   font-weight:500;
@@ -298,12 +294,8 @@ input,select,textarea{font:inherit; color:inherit}
 .tstat .k{font-size:12px; color:var(--muted); font-weight:500}
 .tstat .v{font-size:23px; font-weight:500; margin-top:2px}
 
-.health{padding:var(--s3) var(--s4); border-radius:var(--radius-card);
-  border:1px solid var(--border); background:var(--surface);
-  font-size:13px; color:var(--text); font-weight:500;
-  display:flex; align-items:center; gap:var(--s3); flex-wrap:wrap; margin-bottom:var(--s5)}
-.health.ok{background:var(--pill-positive-bg)}
-.health.bad{background:var(--pill-negative-bg)}
+
+
 .bar{flex:1; min-width:90px; height:10px; border-radius:var(--r-full);
      background:var(--raised); overflow:hidden}
 .bar>i{display:block; height:100%; background:var(--chart-3)}
@@ -351,8 +343,7 @@ input,select,textarea{font:inherit; color:inherit}
   border-radius:var(--radius-card)}
 .picks .sec-hd{margin-bottom:var(--s4)}
 .picks .sec-hd h2{font-size:var(--fs-section); font-weight:600}
-.jobs{display:grid; gap:var(--s4); margin-bottom:0}
-.picks .jobs + *{margin-top:var(--s4)}
+
 .picks .more-row{padding-bottom:0}
 .card{background:var(--surface); border:1px solid var(--border);
   border-radius:var(--radius-card); padding:var(--s4) var(--s5);
@@ -634,7 +625,7 @@ input,select,textarea{font:inherit; color:inherit}
 
 /* ── 响应式 ───────────────────────────────────────────────── */
 @media (max-width:900px){
-  .stats{grid-template-columns:repeat(2,1fr)}
+
   .grid3{grid-template-columns:1fr}
   .hero h1{font-size:20px}
   .wrap{padding:0 var(--s4)}
@@ -653,7 +644,7 @@ input,select,textarea{font:inherit; color:inherit}
 }
 @media (max-width:560px){
   .brand span:not(.brand-mark){display:none}
-  .stats{gap:var(--s2)}
+
   .stat .v{font-size:23px}
   .acts{width:100%; margin-left:0}
   .act{flex:1; text-align:center}

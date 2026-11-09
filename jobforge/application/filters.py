@@ -35,6 +35,11 @@ def edu_rank(text: str) -> int:
     return _EDU_RANK.get((text or "").strip(), 0)
 
 
+# 加权完整率下限——唯一真源（B10）：HardFilter 过滤与 DataGate 体检共用，
+# 避免 0.6 硬编码漂移。
+MIN_COMPLETENESS = 0.6
+
+
 @dataclass
 class HardFilter:
     """硬性条件。命中即淘汰，且必须能说出淘汰原因。"""
@@ -93,7 +98,7 @@ class HardFilter:
                 if k in blob:
                     reasons.append(f"命中排除词「{k}」")
 
-        if self.hide_incomplete and job.completeness() < 0.6:
+        if self.hide_incomplete and job.completeness() < MIN_COMPLETENESS:
             missing = job.missing_required()
             if missing:
                 reasons.append("数据不完整：" + "、".join(missing))
@@ -126,7 +131,7 @@ class DataGate:
     "5-10年"这种经验值，而文档里写着"找到 15 个岗位"。
     每天自动推送的产品不能这样 —— 错一次，用户就慢慢不信了。
     """
-    min_completeness: float = 0.6      # 加权完整率下限
+    min_completeness: float = MIN_COMPLETENESS  # 加权完整率下限
     max_incomplete_ratio: float = 0.2  # 必填字段缺失占比上限
     min_new_jobs: int = 1              # 当天至少新增几条才算"有货"
     min_salary_resolved_ratio: float = 0.5  # 薪资可解析占比下限

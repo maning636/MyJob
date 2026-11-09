@@ -46,7 +46,6 @@ from jobforge import _PROJECT_ROOT
 from jobforge.ports import DEFAULT_PORT as _PORTS_DEFAULT_PORT
 from jobforge.ports import pick_port, port_free
 
-APP_TITLE = "求职工作台"
 DEFAULT_PORT = _PORTS_DEFAULT_PORT
 # 窗口尺寸（逻辑像素）。1250 这个宽度是量出来的：
 # 界面 .wrap 的 max-width 是 1120px，900px 以下会切成竖排布局，
@@ -122,7 +121,7 @@ def ui_profile_dir() -> Path:
     共用会导致第二个进程直接退出（Chrome 的自我保护）。
     """
     base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local")
-    d = base / "JobBench" / "ui-profile"
+    d = base / "JobForge" / "ui-profile"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

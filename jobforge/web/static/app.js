@@ -273,21 +273,16 @@ const PICK_LIMIT = 5;
 async function load(){
   const r = await J('/api/jobs?' + qs());
   state.jobs = r.kept || [];
+  // 展示阈值来自后端（B3）：新鲜度/挂榜标签不硬编码。
+  state.rules = {...(state.rules || {}), ...(r.rules || {})};
 
-  // 先按匹配度排序（无法评估的排后面），再限量
-  const rep = m => state.reports[m] || {match_score:0, verdict:''};
-  const ordered = [...state.jobs].sort((a,b) => {
-    const va = rep(a.id).verdict === '无法评估' ? 1 : 0;
-    const vb = rep(b.id).verdict === '无法评估' ? 1 : 0;
-    if(va !== vb) return va - vb;
-    return rep(b.id).match_score - rep(a.id).match_score;
-  });
+  // 排序规则由 sortedKept() 一处定义（B1：收敛两份重复）
+  const ordered = sortedKept();
   const shown = state.showAll ? ordered : ordered.slice(0, PICK_LIMIT);
 
   $('#cards').innerHTML = shown.length
     ? shown.map(cardHtml).join('')
-    : `<div class="empty"><div class="big">🗂</div>
-       目前没有符合条件的岗位。<br>放宽筛选条件，或先导入一批试试。</div>`;
+    : `<div class="empty">目前没有符合条件的岗位。<br>放宽筛选条件，或先导入一批试试。</div>`;
 
   $('#picksSub').textContent = state.jobs.length > PICK_LIMIT && !state.showAll
     ? `已按匹配度排序，先给你看 ${shown.length} 个（共 ${r.kept_count} 个）`
@@ -417,22 +412,27 @@ async function loadAnalysis(){
 }
 
 /* 卡片渲染收敛到一处：初次加载与分析返回都走它，避免限量逻辑不一致 */
-function renderCards(){
+function sortedKept(){
+  // 岗位排序唯一真源（B1）：无法评估排最后，其余按匹配度降序。
+  // 「无法评估」语义来自后端结论（analyzer 的 evaluable 映射），此处只消费 verdict 字符串。
   const rep = m => state.reports[m] || {match_score:0, verdict:''};
-  const ordered = [...state.jobs].sort((a,b) => {
+  return [...state.jobs].sort((a,b) => {
     const va = rep(a.id).verdict === '无法评估' ? 1 : 0;
     const vb = rep(b.id).verdict === '无法评估' ? 1 : 0;
     if(va !== vb) return va - vb;
     return rep(b.id).match_score - rep(a.id).match_score;
   });
+}
+
+function renderCards(){
+  const ordered = sortedKept();
   const shown = state.showAll ? ordered : ordered.slice(0, PICK_LIMIT);
   $('#cards').innerHTML = shown.length
     ? shown.map(cardHtml).join('')
-    : `<div class="empty"><div class="big">🗂</div>
-       目前没有符合条件的岗位。<br>放宽筛选条件，或先导入一批试试。</div>`;
+    : `<div class="empty">目前没有符合条件的岗位。<br>放宽筛选条件，或先导入一批试试。</div>`;
 }
 
-function cardHtml(j, idx){
+function cardHtml(j){
   const st = j.salary_state || 'unresolved';
   const sal = j.salary_text || '';
   const rep = state.reports[j.id];
@@ -447,8 +447,9 @@ function cardHtml(j, idx){
   const flags = [];
   if(j.is_outsourcing_risk === true) flags.push(`<span class="flag flag-risk">⚠ 疑似外包/派遣</span>`);
   const d = daysSince(j.first_seen_at);
-  if(d !== null && d <= 1) flags.push(`<span class="flag flag-fresh">🆕 今天新挂</span>`);
-  else if(d !== null && d >= 7) flags.push(`<span class="flag flag-aged">已挂 ${d} 天</span>`);
+  const listedAge = (state.rules && state.rules.listed_age_days) || 30;
+  if(d !== null && d <= 1) flags.push(`<span class="flag flag-fresh">今天新挂</span>`);
+  else if(d !== null && d >= listedAge) flags.push(`<span class="flag flag-aged">已挂 ${d} 天</span>`);
   if(j.missing && j.missing.length)
     flags.push(`<span class="flag flag-incomplete">缺 ${j.missing.join('、')}</span>`);
   if(applied) flags.push(`<span class="flag flag-fresh">✓ 已投递</span>`);
@@ -535,7 +536,7 @@ function semHtml(s){
           ${m.confidence==='high'?'':'<span class="dim">（推测）</span>'}</div>
         <div class="evid">JD：${esc((m.evidence_jd||'').slice(0,70))}</div>
         <div class="evid">简历：${esc((m.evidence_resume||'').slice(0,70))}</div>`).join('')}</div>` : ''}
-    ${(s.weak_matches||[]).length ? `<h4>❓ 模型觉得你可能沾边、但置信度不足（${s.weak_matches.length}）</h4>
+    ${(s.weak_matches||[]).length ? `<h4>? 模型觉得你可能沾边、但置信度不足（${s.weak_matches.length}）</h4>
       <div class="dim" style="margin-bottom:6px">这些只是推测不是结论，简历里没有明确写，
         请自己核实后再决定要不要用。</div>
       <div>${s.weak_matches.map(m=>`
@@ -544,7 +545,7 @@ function semHtml(s){
         <div class="evid">简历依据：${esc((m.evidence_resume||'').slice(0,70))}</div>`).join('')}</div>` : ''}
     ${line('✗ 模型认为你还缺的（推测，需自行核实）', s.missing, 'bad-600')}
     ${line('⚠ 模型标出的风险点（推测，需自行核实）', s.red_flags, 'warn-700')}
-    ${(s.resume_advice||[]).length ? `<h4>📝 简历可以怎么改</h4>
+    ${(s.resume_advice||[]).length ? `<h4>✎ 简历可以怎么改</h4>
       ${s.resume_advice.map(x=>`<div class="sug">${esc(x)}</div>`).join('')}` : ''}
     ${(s.soft_fit_score!=null) ? `<h4>软性素质评分 ${s.soft_fit_score}（模型主观判断，仅供参考）</h4>` : ''}
   </div>`;
@@ -607,7 +608,7 @@ function openTailorSheet(r){
    ⚠ 一条不能妥协的：工时靠猜出来的时薪**不参与排名、不参与硬筛选**。
    口径不明的数字比大小，得出的名次是随意的。 */
 
-const PT = { meta:null, ids:[], cats:[], init:false };
+const PT = { meta:null, ids:[], init:false };
 
 async function initPartTime(){
   if(PT.init) return;
@@ -750,7 +751,7 @@ function whyHtml(rep, job){  const sk = arr => arr.map(m=>{
   }).join('');
   const sal = state.salary[String(job.id)];
   const salHtml = (sal && (sal.vs_expect || sal.vs_batch)) ? `
-    <h4>💰 薪资怎么看</h4>
+    <h4>¥ 薪资怎么看</h4>
     ${sal.vs_expect?`<div class="sug">${esc(sal.vs_expect)}</div>`:''}
     ${sal.vs_batch?`<div class="sug">${esc(sal.vs_batch)}</div>`:''}` : '';
   return `<div class="why">
@@ -762,7 +763,7 @@ function whyHtml(rep, job){  const sk = arr => arr.map(m=>{
     ${(rep.blockers||[]).length
       ? `<h4>⛔ 投之前必须知道</h4>${rep.blockers.map(s=>`<div class="block">${esc(s)}</div>`).join('')}`:''}
     ${(rep.suggestions||[]).length
-      ? `<h4>📌 你该做什么</h4>${rep.suggestions.map(s=>`<div class="sug">${esc(s)}</div>`).join('')}`:''}
+      ? `<h4>→ 你该做什么</h4>${rep.suggestions.map(s=>`<div class="sug">${esc(s)}</div>`).join('')}`:''}
     ${salHtml}
     ${(rep.notes||[]).length
       ? `<h4>⚠️ 说明</h4>${rep.notes.map(s=>`<div class="sug">${esc(s)}</div>`).join('')}`:''}
@@ -825,6 +826,8 @@ async function loadTracking(){
   const q = state.statusFilter ? '?status=' + state.statusFilter : '';
   const r = await J('/api/tracking/applications' + q);
   const apps = r.applications || [], s = r.summary || {};
+  // 跟进阈值来自后端（B2）：appCard 用它判断紧迫度，不硬编码。
+  state.rules = r.rules || {};
 
   // 统计卡：点哪个 tab 都能下钻
   $('#tstats').innerHTML = [
@@ -840,8 +843,7 @@ async function loadTracking(){
   // 实测踩过：写不存在的元素会抛 TypeError，把整个列表渲染中断，
   // 表现为「统计有数但列表空白」。
   if(!apps.length){
-    $('#apps').innerHTML = `<div class="empty"><div class="big">📮</div>
-      ${state.statusFilter ? '这个状态下没有记录' : '还没有投递记录'}<br>
+    $('#apps').innerHTML = `<div class="empty">${state.statusFilter ? '这个状态下没有记录' : '还没有投递记录'}<br>
       <span class="dim">在「今日」里点岗位卡的「投递」按钮，就会记到这里</span></div>`;
     return;
   }
@@ -851,9 +853,12 @@ async function loadTracking(){
 function appCard(a){
   const d = a.days_since_applied || 0;
   // 边框颜色直接表达紧迫度，不用另加标签
+  // 阈值用后端规则（B2），默认回退到 7/3 仅防御后端未下发。
+  const urg = (state.rules && state.rules.followup_urgent) || 7;
+  const soon = (state.rules && state.rules.followup_days) || 3;
   let cls = '', daysCls = 'd-ok', daysTxt = `投了 ${d} 天`;
-  if(a.status === 'applied' && d >= 7){ cls = 'stale'; daysCls = 'd-late'; }
-  else if(a.status === 'applied' && d >= 3){ cls = 'due'; daysCls = 'd-due'; }
+  if(a.status === 'applied' && d >= urg){ cls = 'stale'; daysCls = 'd-late'; }
+  else if(a.status === 'applied' && d >= soon){ cls = 'due'; daysCls = 'd-due'; }
   else if(a.status === 'applied'){ daysTxt = `投了 ${d} 天，可以跟一下`; daysCls = 'd-due'; }
 
   const meta = [];
@@ -1161,16 +1166,8 @@ async function _loadInsight(box){
     return;
   }
 
-  // 匹配度 vs 结果：这是最有价值的洞察
-  const apps = (await J('/api/tracking/applications')).applications || [];
-  const buckets = {'0-30': {n:0, ok:0}, '31-60': {n:0, ok:0}, '61-80': {n:0, ok:0}, '81-100': {n:0, ok:0}};
-  apps.filter(a => a.match_score != null).forEach(a => {
-    const m = a.match_score;
-    const k = m <= 30 ? '0-30' : m <= 60 ? '31-60' : m <= 80 ? '61-80' : '81-100';
-    buckets[k].n++;
-    if(['offer','interview','assessment'].includes(a.status)) buckets[k].ok++;
-  });
-
+  // 匹配度 vs 结果：后端已按同规则分桶（B4），前端不再重算。
+  const buckets = s.buckets || {};
   const bars = Object.entries(buckets).filter(([,v]) => v.n > 0).map(([k,v]) => {
     const pct = Math.round(v.ok / v.n * 100);
     return `<div class="barrow">
@@ -1396,7 +1393,7 @@ function applyWizardState(r){
     wizState('浏览器已经开着。如果你确定登录过了，点上面的按钮让程序确认一下');
   } else if(s === 'ready'){
     wizGo(3, [1,2]);
-    wizState('✅ 已经连上了，可以开始采集', 'ok');
+    wizState('✓ 已经连上了，可以开始采集', 'ok');
   } else if(s === 'install'){
     wizGo(1);
     wizState('没找到浏览器，需要先安装', 'err');
@@ -1441,7 +1438,7 @@ async function checkLogin(){
 
   if(r.ok){
     wizGo(3, [1,2]);
-    wizState('✅ 登录成功，填个关键词就可以开始了', 'ok');
+    wizState('✓ 登录成功，填个关键词就可以开始了', 'ok');
     const kw = $('#cKw'); if(kw && kw.value) $('#dcKw').value = kw.value;
     const city = $('#cCity'); if(city && city.value) $('#dcCity').value = city.value;
   } else if(r.logged_in === false){
@@ -1535,12 +1532,6 @@ async function toggleAuto(){
   await loadAutoStatus();
 }
 
-/* 设置页里的采集入口也走同一个向导 */
-async function checkBrowser(fromSettings){
-  if(fromSettings){ openCollectSettings(); return; }
-  openCollectWizard();
-}
-
 async function loadCollectHist(){
   const c = await J('/api/collect/health');
   const hist = c.recent || [];
@@ -1551,7 +1542,7 @@ async function loadCollectHist(){
   $('#collectHist').innerHTML = '<div class="sec-hd" style="margin-top:16px"><h3>最近采集</h3></div>' +
     hist.map(r => `
       <div class="chist">
-        <span class="st-ic">${r.ok?'✅':'❌'}</span>
+        <span class="st-ic">${r.ok?'✓':'✗'}</span>
         <div style="flex:1;min-width:0">
           ${String(r.started_at).slice(5,16)}　${esc(r.source)}　新增 <b>${r.inserted}</b>
           ${r.errors && r.errors.length ? `<div class="ch-msg">${esc(r.errors[0])}</div>` : ''}

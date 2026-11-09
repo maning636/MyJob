@@ -99,6 +99,35 @@ def die(msg: str):
     say("")
     say("把上面这段话截图发给帮你的人就行，不用自己想办法。")
     say("", pause=True)
+
+
+def _lock_path() -> Path:
+    return ROOT / "data" / "jobforge.lock"
+
+
+def _acquire_single_instance() -> bool:
+    """单实例锁：防双开写同一 SQLite（C 档）。False = 已有实例在跑。"""
+    p = _lock_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        old = int(p.read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        old = 0
+    if old:
+        try:
+            os.kill(old, 0)  # Windows：进程存在则不抛
+            return False
+        except OSError:
+            pass  # 陈旧锁（进程已退出），覆写
+    p.write_text(str(os.getpid()), encoding="utf-8")
+    return True
+
+
+def _release_single_instance() -> None:
+    try:
+        _lock_path().unlink(missing_ok=True)
+    except OSError:
+        pass
     sys.exit(1)
 
 
@@ -272,6 +301,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if not ensure_deps(py):
         return 1
+
+    # 单实例锁（C 档）：防双开写同一 SQLite。启动前拿锁，退出时释放。
+    if not _acquire_single_instance():
+        die("工作台已经在运行了。先关掉正在运行的那个窗口，再打开新的。")
+        return 1
+    import atexit
+    atexit.register(_release_single_instance)
 
     port = pick_port(args.port)
     if port != args.port:

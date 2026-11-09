@@ -43,8 +43,9 @@ def bind_socket(host: str, port: int) -> socket.socket:
     """绑一个监听用的 socket。绑不上就抛 OSError（不会退出进程）。"""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        # 和 werkzeug 起服务时的做法保持一致：允许复用 TIME_WAIT 的端口。
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # 故意不设 SO_REUSEADDR：Windows 下它语义与 Unix 不同，
+        # 会掩盖端口已被占用的事实（见 jobforge/ports.py 的坑记录），
+        # 导致 bind 看似成功、实际连不上。这里宁可不用，让 bind 真实报错。
         s.bind((host, port))
         s.listen(LISTEN_QUEUE)
         return s

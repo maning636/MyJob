@@ -130,6 +130,10 @@ def classify_company(company: str, extra_text: str = "") -> str:
 # 级别：info 只是提醒，warn 要留心，bad 是明显风险
 LEVELS = {"info", "warn", "bad"}
 
+# 挂榜时长阈值（天）：超过视为「长期挂榜」——唯一真源（B3）。
+# 前端「已挂 X 天」标签与可信度体检共用此值，避免 7/30 漂移。
+STALE_LISTED_DAYS = 30
+
 
 @dataclass
 class TrustSignal:
@@ -209,7 +213,7 @@ def _days_since(iso: str) -> Optional[int]:
         return None
 
 
-def check_trust(job, candidate_salary_expect: Optional[int] = None) -> TrustReport:
+def check_trust(job) -> TrustReport:
     """对单个岗位做可信度体检。
 
     全部是纯规则，不调 LLM —— 这类判断要的是**可复现**，
@@ -331,7 +335,7 @@ def check_trust(job, candidate_salary_expect: Optional[int] = None) -> TrustRepo
     # 只用**我们自己采到的数据**，不联网查公司背景 ——
     # 理由见文件头原则 3：拿不出证据就不报。
     days = _days_since(getattr(job, "first_seen_at", ""))
-    if days is not None and days >= 30:
+    if days is not None and days >= STALE_LISTED_DAYS:
         r.signals.append(TrustSignal(
             level="info", code="long_listed",
             title=f"这个岗位已经挂了 {days} 天",

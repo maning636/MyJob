@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from jobforge.domain.models import (
     Job, JobStatus, SalaryState, SCHEMA_VERSION,
-    build_ddl, build_json_schema,
+    build_ddl,
 )
 
 _LIST_FIELDS = {"tags", "outsourcing_evidence"}

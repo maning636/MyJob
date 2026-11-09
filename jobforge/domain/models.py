@@ -61,14 +61,6 @@ class Channel(str, Enum):
     LIEPIN = "liepin"
 
 
-# 投递状态机（吸收 v1.2.0 的社招 5 态 + 校招 11 态，统一成一张表）
-APPLICATION_STATES = [
-    "saved", "applied", "assessment", "written_test", "group_interview",
-    "tech_interview", "hr_interview", "medical_check", "publicity",
-    "three_agreement", "offered", "rejected", "withdrawn",
-]
-
-
 # =============================================================================
 # Job —— 岗位
 # =============================================================================
@@ -306,25 +298,6 @@ _JSON_TYPES = {
 }
 
 
-def build_json_schema() -> Dict[str, Any]:
-    props: Dict[str, Any] = {}
-    required: List[str] = []
-    for f in fields(Job):
-        ann = str(f.type).replace("typing.", "").strip()
-        props[f.name] = {"type": _JSON_TYPES.get(ann, "string")}
-        if ann in ("str",) and f.name in Job.REQUIRED_FIELDS:
-            required.append(f.name)
-    return {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": f"https://jobforge.local/schema/job/{SCHEMA_VERSION}.json",
-        "title": "求职工作台岗位",
-        "x-schema-version": SCHEMA_VERSION,
-        "type": "object",
-        "properties": props,
-        "required": required,
-    }
-
-
 # =============================================================================
 # 薪资解析（中文招聘薪资文本 → 数值）
 # =============================================================================
@@ -449,10 +422,4 @@ def apply_salary(job: Job) -> Job:
     return job
 
 
-def dump_schema(path: Optional[str] = None) -> str:
-    """导出 JSON Schema 到磁盘。"""
-    s = json.dumps(build_json_schema(), ensure_ascii=False, indent=2)
-    if path:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(s + "\n")
-    return s
+

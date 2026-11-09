@@ -83,8 +83,8 @@ print("\n--- 资料目录不能和采集浏览器共用 ---")
 ui_dir = D.ui_profile_dir()
 check("界面资料目录建得出来", ui_dir.is_dir(), str(ui_dir))
 check("界面资料目录在 LOCALAPPDATA 下",
-      "JobBench" in str(ui_dir) and str(ui_dir).startswith(
-          os.environ.get("LOCALAPPDATA", "") or "JobBench"),
+      "JobForge" in str(ui_dir) and str(ui_dir).startswith(
+          os.environ.get("LOCALAPPDATA", "") or "JobForge"),
       str(ui_dir))
 check("界面资料目录和采集浏览器的不一样",
       ui_dir.resolve() != BL.user_data_dir().resolve(),
@@ -133,7 +133,7 @@ check("指定了窗口尺寸",
 check("首次运行不弹欢迎页",
       "--no-first-run" in args and "--no-default-browser-check" in args)
 check("界面用的是自己的资料目录",
-      any(a.startswith("--user-data-dir=") and "JobBench" in a for a in args),
+      any(a.startswith("--user-data-dir=") and "JobForge" in a for a in args),
       str([a for a in args if a.startswith("--user-data-dir=")]))
 check("没有把采集浏览器的资料目录用上",
       not any("jobforge-browser" in a for a in args))

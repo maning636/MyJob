@@ -223,7 +223,7 @@ def cmd_analyze(a):
 
     if not (cand.resume_text or cand.skill_names):
         print("还没有候选人档案。先建一个：")
-        print("  python -m jobforge.cli profile --file 我的简历.txt")
+        print("  python -m jobforge.cli profile 我的简历.txt")
         print("或者在 Web 界面的「我的能力」里粘贴简历。")
         return 1
 
