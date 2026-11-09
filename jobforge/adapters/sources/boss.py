@@ -275,3 +275,65 @@ class BossCollector:
         delay = random.uniform(45, 90)
         logger.info("等待 %.0fs 后翻下一页", delay)
         time.sleep(delay)
+
+    # BOSS 详情页「立即沟通」按钮与打招呼语弹框发送按钮。
+    # 参考开源 boss_one_click 的 BOSS 投递机制（BOSS 投递 = 点「立即沟通」）。
+    # 需真实登录态实测修正：页面改版时这里最可能失效，失败会明确报「没找到按钮」。
+    GREET_BTN_JS = (
+        "(() => {"
+        "  const sels = ['.btn-greet', '.job-op .btn-sure', '.btn-sure', '#btn-greet'];"
+        "  for (const sel of sels) {"
+        "    const b = document.querySelector(sel);"
+        "    if (b && (b.textContent.includes('立即沟通') || b.textContent.includes('沟通'))) {"
+        "      b.click(); return true;"
+        "    }"
+        "  }"
+        "  return false;"
+        "})()"
+    )
+    GREET_SEND_JS = (
+        "(() => {"
+        "  const sels = ['.dialog .btn-sure', '.btn-send', '.dialog .btn-primary', '.btn-sure'];"
+        "  for (const sel of sels) {"
+        "    const b = document.querySelector(sel);"
+        "    if (b) { b.click(); return true; }"
+        "  }"
+        "  return false;"
+        "})()"
+    )
+
+    def apply(self, job_url: str, greet: str = "") -> Dict[str, Any]:
+        """在 BOSS 岗位页点「立即沟通」投出在线简历。
+
+        依赖真实登录态，无法离线验证（同 collect）。返回 {ok, message}。
+        失败（未登录/无在线简历/页面改版/风控）必须回显，不得静默当成功。
+        """
+        ready = self.check_ready()
+        if not ready["ok"]:
+            raise BrowserError(f"{ready['reason']}\n{ready.get('howto', '')}")
+
+        page = self.b.fetch(job_url, "zhipin.com",
+                            wait_selector=".job-detail, #job-detail, .job-info")
+        clicked = self.b.evaluate(page.ws_url, self.GREET_BTN_JS)
+        if not clicked:
+            return {"ok": False,
+                    "message": "没找到「立即沟通」按钮（BOSS 页面可能已改版，请更新选择器）"}
+
+        # 打招呼语弹框：填入自定义问候（若有输入框），再点发送。
+        if greet:
+            import json
+            g = json.dumps(greet)  # 安全嵌入 JS 字符串字面量（转义引号/换行）
+            self.b.evaluate(page.ws_url,
+                            "(() => {"
+                            "  const i = document.querySelector('.dialog textarea, .dialog input, textarea, input');"
+                            "  if (i) {"
+                            f"    i.value = {g};"
+                            "    i.dispatchEvent(new Event('input', {bubbles: true}));"
+                            "    return true;"
+                            "  }"
+                            "  return false;"
+                            "})()")
+        sent = self.b.evaluate(page.ws_url, self.GREET_SEND_JS)
+        if not sent:
+            return {"ok": False, "message": "投递弹框未找到发送按钮（页面可能已改版）"}
+        return {"ok": True, "message": "已通过「立即沟通」投递（在线简历）"}

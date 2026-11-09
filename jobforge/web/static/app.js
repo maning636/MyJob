@@ -779,17 +779,14 @@ function toggle(id){
 
 /* ── 岗位操作 ───────────────────────────────────────────── */
 async function applyJob(id){
-  const rep = state.reports[id];
-  const r = await post('/api/tracking/applications', {
-    job_id: id, match_score: rep ? rep.match_score : null,
-    match_verdict: rep ? rep.verdict : ''
-  });
-  if(!r.ok){ toast(r.error || '投递记录失败'); return; }
-  // A8：投递成功 → 该岗位卡片显示「已投递」。后端已同步落库，
-  // 这里再回写内存态，让本次渲染立即反映（不等 load() 返回）。
+  // 真投递：用已登录的 BOSS 会话点「立即沟通」投出在线简历（非本地假标记）。
+  // 失败（未登录/无在线简历/页面改版/风控）如实回显，不静默当成功。
+  const r = await post(`/api/apply/${id}`, {});
+  if(!r.ok){ toast(r.message || r.error || '投递失败'); return; }
+  // 投递成功 → 该岗位卡片显示「已投递」。后端已同步落库，这里回写内存态。
   const j = state.jobs.find(x => x.id === id);
   if(j) j.status = 'applied';
-  toast(`已记入台账：${r.application.position}`);
+  toast(r.message || '已投递');
   load(); loadToday();
 }
 async function openAppByJob(jobId){

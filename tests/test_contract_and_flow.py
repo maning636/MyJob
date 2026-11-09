@@ -898,5 +898,24 @@ if _req.exists():
               _pkg in _rt.lower(),
               f"requirements.txt 里找不到 { _pkg }")
 
+print("\n[19] 真投递 —— 在 MyJob 里点投递 = 真的投到 BOSS（用登录态）")
+# =============================================================================
+# 用户要求：投递动作在 MyJob 里完成（用已登录平台会话点「立即沟通」），
+# 不是本地假标记。投递依赖真实登录态，不可离线端到端测（同 collect）。
+_js19 = c.get("/static/app.js").get_data(as_text=True)
+_m19 = _re.search(r"async function applyJob\(id\)\{(.*?)\n\}", _js19, _re.S)
+_b19 = _m19.group(1) if _m19 else ""
+check("前端 applyJob 调真投递接口 /api/apply/<id>",
+      "/api/apply/" in _b19, _b19[:60])
+check("前端 applyJob 失败如实回显（不静默当成功）",
+      "投递失败" in _b19 and "r.message" in _b19, _b19[:60])
+# 后端：BossCollector.apply 存在 + 真投递路由（无岗位 404）
+from jobforge.adapters.sources.boss import BossCollector
+check("BossCollector 有 apply 方法（真投递）",
+      hasattr(BossCollector, "apply"), "BossCollector.apply")
+_r19 = c.post("/api/apply/999999", json={})
+check("真投递：岗位不存在返回 404",
+      _r19.status_code == 404, str(_r19.status_code))
+
 print("\n" + "=" * 62)
 print(f"  通过 {len(PASS)} / {len(PASS) + len(FAIL)}")

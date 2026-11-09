@@ -796,6 +796,29 @@ def create_app(db_path: str = DEFAULT_DB, store: Optional[Store] = None) -> Flas
             st.set_status(job_id, "applied")
         return jsonify({"ok": True, "id": aid, "application": app_obj.to_dict()})
 
+    @app.post("/api/apply/<int:job_id>")
+    def api_apply(job_id: int):
+        """真投递：用已登录的 BOSS 会话点「立即沟通」投出在线简历。
+
+        与 /api/tracking/applications 的区别：后者只**记录**投递状态，
+        前者**真的**在 BOSS 平台投出去（用你的登录态）。
+        """
+        job = st.get(job_id)
+        if not job:
+            return jsonify({"ok": False, "message": "找不到这个岗位"}), 404
+        if not job.url:
+            return jsonify({"ok": False,
+                            "message": "该岗位没有投递链接（非 BOSS 来源或链接缺失）"}), 400
+        try:
+            from jobforge.adapters.sources.boss import BossCollector
+            from jobforge.adapters.sources.browser import BrowserError
+            r = BossCollector().apply(job.url)
+        except BrowserError as e:
+            return jsonify({"ok": False, "message": f"投递失败：{e}"}), 500
+        if r.get("ok"):
+            st.set_status(job_id, "applied")
+        return jsonify(r)
+
     @app.post("/api/tracking/applications/<int:aid>/status")
     def tracking_status(aid: int):
         body = request.get_json(silent=True) or {}
